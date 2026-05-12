@@ -1034,13 +1034,28 @@ function wlRow(key, val, cls) {
 function getOrc(p) { return p.plannedTotalEstimatedHourlyRate || 0; }
 function getGst(p) { return p.plannedTotalAccomplishedHourlyRate || 0; }
 function getSit(p) {
-  var s = p.situation;
-  // Corrige falsos atrasados da API: se todas as tarefas estao concluidas,
-  // o projeto nao pode ser atrasado — sobrescreve para concluido.
   var todasFeitas = p.plannedTasksCount > 0 && p.accomplishedTasksCount >= p.plannedTasksCount;
+  var hoje = new Date(); hoje.setHours(0,0,0,0);
+  var fim  = p.endDate ? new Date(p.endDate) : null;
+  var s    = p.situation;
+
+  // Regra 1: todas as tarefas concluidas → concluido (corrige falsos atrasados da API)
   if (todasFeitas) return 2;
-  if (s === 0 || s === 1 || s === 2) return s;
-  return 0; // fallback seguro: em andamento
+
+  // Regra 2: API ja diz concluido → respeita
+  if (s === 2) return 2;
+
+  // Regra 3: API diz atrasado MAS prazo do PROJETO ainda nao passou
+  //   → e a tarefa individual que esta atrasada, nao o projeto inteiro
+  if (s === 1 && fim && fim >= hoje) return 0;
+
+  // Regra 4: API diz em andamento MAS prazo do projeto ja passou
+  //   → genuinamente atrasado, API nao atualizou o status
+  if (s === 0 && fim && fim < hoje) return 1;
+
+  // Regra 5: sem data de fim ou API explicita → confia no campo situation
+  if (s === 0 || s === 1) return s;
+  return 0;
 }
 function fmtR(v) {
   if (!v) return '—';
