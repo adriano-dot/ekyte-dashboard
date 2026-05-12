@@ -180,10 +180,44 @@ table.main-tbl td.num{text-align:right;font-variant-numeric:tabular-nums}
 /* MISC */
 .empty{padding:30px;text-align:center;color:var(--txt3);font-size:12px}
 .ml{margin-left:4px}
+
+/* POPUP / DRAWER */
+#drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;opacity:0;pointer-events:none;transition:opacity .2s}
+#drawer-overlay.open{opacity:1;pointer-events:all}
+#drawer{position:fixed;top:0;right:0;bottom:0;width:420px;max-width:95vw;background:#111;border-left:1px solid var(--bd);z-index:501;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s ease}
+#drawer.open{transform:translateX(0)}
+#drawer-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--bd);flex-shrink:0}
+#drawer-title{font-size:14px;font-weight:700;color:var(--txt);flex:1;line-height:1.3}
+#drawer-close{width:30px;height:30px;border-radius:6px;background:var(--s2);border:1px solid var(--bd);color:var(--txt2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+#drawer-close:hover{border-color:var(--red);color:var(--red)}
+#drawer-body{flex:1;overflow-y:auto;padding:18px}
+.dr-section{margin-bottom:18px}
+.dr-section-title{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--txt3);font-weight:600;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--bd)}
+.dr-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,.04)}
+.dr-row:last-child{border-bottom:none}
+.dr-key{color:var(--txt3)}
+.dr-val{font-weight:600;color:var(--txt);text-align:right;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dr-bar-wrap{margin-top:8px}
+.dr-bar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--txt3);margin-bottom:4px}
+.dr-bar-bg{height:8px;background:var(--s3);border-radius:4px}
+.dr-bar-fill{height:100%;border-radius:4px;transition:width .4s ease}
+.dr-link{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:8px 14px;background:var(--red);color:#fff;border-radius:var(--r2);font-size:12px;font-weight:600;text-decoration:none}
+.dr-link:hover{background:var(--red2)}
+.td-name a{cursor:pointer}
 @media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,1fr)}.grid2{grid-template-columns:1fr}.grid3{grid-template-columns:1fr}.grid13{grid-template-columns:1fr}.grid31{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
+
+<!-- DRAWER / POPUP DE PROJETO -->
+<div id="drawer-overlay" onclick="closeDrawer()"></div>
+<div id="drawer">
+  <div id="drawer-head">
+    <div id="drawer-title">—</div>
+    <button id="drawer-close" onclick="closeDrawer()">&#10005;</button>
+  </div>
+  <div id="drawer-body"></div>
+</div>
 
 <div id="loader">
   <div class="spin"></div>
@@ -293,7 +327,7 @@ table.main-tbl td.num{text-align:right;font-variant-numeric:tabular-nums}
     </div>
     <div class="card">
       <div class="card-head">
-        <span class="card-title">Top Clientes</span>
+        <span class="card-title">Clientes com Maiores Demandas</span>
         <div class="card-fill"></div>
         <span class="badge badge-r" id="badgeTop">—</span>
       </div>
@@ -896,7 +930,7 @@ function renderTable() {
     var pct = tTp > 0 ? Math.round(dTp/tTp*100) : 0;
     var bc  = pct===100 ? 'var(--green)' : pct>=80 ? 'var(--amber)' : 'var(--red)';
     h += '<tr>';
-    h += '<td class="td-name"><a href="'+esc(p.link||'#')+'" target="_blank">'+esc(p.name||'—')+'</a></td>';
+    h += '<td class="td-name"><a onclick="openDrawer('+p.id+')" href="#">'+esc(p.name||'—')+'</a></td>';
     h += '<td><span class="ctag" title="'+esc(p.workspace||'')+'">'+esc(p.workspace||'—')+'</span></td>';
     h += '<td style="color:var(--txt3);font-size:11px">'+esc(p.squad||'—')+'</td>';
     h += '<td style="color:var(--txt3);white-space:nowrap">'+fmtD(p.startDate)+'</td>';
@@ -984,9 +1018,8 @@ function getGst(p) { return p.plannedTotalAccomplishedHourlyRate || 0; }
 function getSit(p) {
   var s = p.situation;
   if (s === 0 || s === 1 || s === 2) return s;
-  var e = p.endDate ? new Date(p.endDate) : null;
+  // Fallback: concluido se todas as tarefas feitas; nunca marca atrasado por data de tarefa individual
   if (p.plannedTasksCount > 0 && p.accomplishedTasksCount >= p.plannedTasksCount) return 2;
-  if (e && e < new Date()) return 1;
   return 0;
 }
 function fmtR(v) {
@@ -1009,6 +1042,89 @@ function esc(s) {
 }
 function show(id, visible) { document.getElementById(id).style.display = visible ? 'flex' : 'none'; }
 function setTxt(id, val)   { var el = document.getElementById(id); if (el) el.textContent = val; }
+
+// ─── DRAWER (POPUP DE PROJETO) ────────────────────────────────────────────────
+function openDrawer(projectId) {
+  var p = ALL.filter(function(x){ return x.id === projectId; })[0];
+  if (!p) return;
+
+  var sit   = getSit(p);
+  var pO    = p._orc, pG = p._gst, delta = pG - pO;
+  var hPl   = p.plannedTasksTime || 0, hRl = p.accomplishedTasksTime || 0;
+  var tT    = p.plannedTasksCount || 0, dT = p.accomplishedTasksCount || 0;
+  var pctT  = tT > 0 ? Math.round(dT / tT * 100) : 0;
+  var pctH  = hPl > 0 ? Math.round(hRl / hPl * 100) : null;
+  var pctB  = pO > 0 ? Math.round(pG / pO * 100) : null;
+  var sitMap = {0:{l:'Em andamento',c:'#60a5fa'}, 1:{l:'Atrasado',c:'#e8001c'}, 2:{l:'Concluido',c:'#22c55e'}};
+  var sc = sitMap[sit] || sitMap[0];
+
+  var barT = pctT===100?'var(--green)':pctT>=80?'var(--amber)':'var(--red)';
+  var barH = pctH!=null?(pctH>100?'var(--red)':pctH>=80?'var(--amber)':'var(--green)'):'var(--blue)';
+  var barB = pctB!=null?(pctB>100?'var(--red)':'var(--green)'):'var(--blue)';
+
+  var h = '';
+
+  // Status + cliente
+  h += '<div class="dr-section">';
+  h += '<div class="dr-row"><span class="dr-key">Status</span><span class="dr-val" style="color:'+sc.c+'">&#9679; '+sc.l+'</span></div>';
+  h += '<div class="dr-row"><span class="dr-key">Cliente</span><span class="dr-val">'+esc(p.workspace||'—')+'</span></div>';
+  h += '<div class="dr-row"><span class="dr-key">Squad</span><span class="dr-val">'+esc(p.squad||'—')+'</span></div>';
+  h += '<div class="dr-row"><span class="dr-key">Inicio</span><span class="dr-val">'+fmtD(p.startDate)+'</span></div>';
+  h += '<div class="dr-row"><span class="dr-key">Fim previsto</span><span class="dr-val">'+fmtD(p.endDate)+'</span></div>';
+  h += '</div>';
+
+  // Financeiro
+  h += '<div class="dr-section">';
+  h += '<div class="dr-section-title">Financeiro</div>';
+  h += '<div class="dr-row"><span class="dr-key">Orcado</span><span class="dr-val c-blue">'+fmtR(pO)+'</span></div>';
+  h += '<div class="dr-row"><span class="dr-key">Gasto</span><span class="dr-val '+(delta>0?'c-red':'c-green')+'">'+fmtR(pG)+'</span></div>';
+  h += '<div class="dr-row"><span class="dr-key">Saldo</span><span class="dr-val '+(delta>0?'c-red':'c-green')+'">'+(pO>0?(delta>0?'− ':'+ ')+fmtR(Math.abs(delta)):'—')+'</span></div>';
+  if (pctB != null) {
+    h += '<div class="dr-bar-wrap"><div class="dr-bar-label"><span>Uso do orcamento</span><span>'+pctB+'%</span></div>';
+    h += '<div class="dr-bar-bg"><div class="dr-bar-fill" style="width:'+Math.min(pctB,100)+'%;background:'+barB+'"></div></div></div>';
+  }
+  h += '</div>';
+
+  // Horas
+  h += '<div class="dr-section">';
+  h += '<div class="dr-section-title">Horas</div>';
+  h += '<div class="dr-row"><span class="dr-key">Planejadas</span><span class="dr-val">'+fmtH(hPl)+'</span></div>';
+  h += '<div class="dr-row"><span class="dr-key">Realizadas</span><span class="dr-val '+(pctH!=null&&pctH>100?'c-amber':'')+'">'+fmtH(hRl)+'</span></div>';
+  if (pctH != null) {
+    h += '<div class="dr-bar-wrap"><div class="dr-bar-label"><span>Uso das horas</span><span>'+pctH+'%</span></div>';
+    h += '<div class="dr-bar-bg"><div class="dr-bar-fill" style="width:'+Math.min(pctH,100)+'%;background:'+barH+'"></div></div></div>';
+  }
+  h += '</div>';
+
+  // Tarefas
+  h += '<div class="dr-section">';
+  h += '<div class="dr-section-title">Tarefas</div>';
+  h += '<div class="dr-row"><span class="dr-key">Concluidas</span><span class="dr-val c-green">'+dT+'</span></div>';
+  h += '<div class="dr-row"><span class="dr-key">Total planejadas</span><span class="dr-val">'+tT+'</span></div>';
+  h += '<div class="dr-bar-wrap"><div class="dr-bar-label"><span>Progresso</span><span>'+pctT+'%</span></div>';
+  h += '<div class="dr-bar-bg"><div class="dr-bar-fill" style="width:'+pctT+'%;background:'+barT+'"></div></div></div>';
+  h += '</div>';
+
+  // Link externo
+  if (p.link) {
+    h += '<a class="dr-link" href="'+esc(p.link)+'" target="_blank">&#128279; Abrir no Ekyte</a>';
+  }
+
+  document.getElementById('drawer-title').textContent = p.name || 'Projeto';
+  document.getElementById('drawer-body').innerHTML = h;
+  document.getElementById('drawer-overlay').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDrawer() {
+  document.getElementById('drawer-overlay').classList.remove('open');
+  document.getElementById('drawer').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// Fecha com ESC
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeDrawer(); });
 </script>
 </body>
 </html>
