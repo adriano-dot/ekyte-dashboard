@@ -502,7 +502,7 @@ function applyFilters() {
   var from     = document.getElementById('fFrom').value; // "YYYY-MM"
   var to       = document.getElementById('fTo').value;   // "YYYY-MM"
 
-  // Converte periodo para datas comparáveis com startDate (YYYY-MM-DD)
+  // Converte periodo para strings YYYY-MM-DD comparáveis
   var fromDate = from ? from + '-01' : null;
   var toDate   = to   ? to   + '-31' : null;
 
@@ -510,9 +510,13 @@ function applyFilters() {
     if (clientId && String(p.workspaceId) !== clientId) return false;
     if (squadId  && String(p.squadId)     !== squadId)  return false;
     if (status !== '' && String(getSit(p)) !== status)  return false;
-    // Filtro de periodo por startDate
-    if (fromDate && p.startDate && p.startDate < fromDate) return false;
-    if (toDate   && p.startDate && p.startDate > toDate)   return false;
+
+    // Filtro de periodo com logica de sobreposicao (overlap):
+    // inclui o projeto se seu ciclo de vida toca o periodo selecionado.
+    // Regra: projeto.startDate <= periodoFim  E  (projeto.endDate >= periodoInicio OU sem endDate)
+    if (toDate   && p.startDate && p.startDate > toDate)   return false; // começa depois do periodo
+    if (fromDate && p.endDate   && p.endDate   < fromDate) return false; // terminou antes do periodo
+    // projetos sem endDate e que já começaram são sempre incluídos no periodo
     return true;
   });
 
@@ -688,14 +692,20 @@ function renderInsights() {
   h += '</div>';
 
   // Insight 2: atrasos
+  // Projetos com situation=1 da API mas com todas tarefas feitas já foram corrigidos pelo getSit()
+  var apiAtrasados = FIL.filter(function(p){ return p.situation === 1; }).length;
+  var corrigidos   = FIL.filter(function(p){ return p.situation === 1 && getSit(p) === 2; }).length;
   h += '<div class="ins">';
   h += '<div class="ins-label">Projetos atrasados</div>';
   h += '<div class="ins-val '+(delayed.length>0?'c-red':'c-green')+'">'+delayed.length+'</div>';
   h += '<div class="ins-desc">'+FIL.filter(function(p){return getSit(p)===0;}).length+' em andamento · '+concluidos.length+' concluidos</div>';
+  if (corrigidos > 0) {
+    h += '<div style="margin-top:6px;font-size:10px;color:var(--amber);background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:4px;padding:5px 8px">&#9888; '+corrigidos+' projetos tinham status incorreto no Ekyte (atrasado com 100% das tarefas feitas) e foram corrigidos automaticamente.</div>';
+  }
   if (delayed.length > 0) {
     h += '<div class="ins-list">';
     delayed.slice(0,3).forEach(function(p) {
-      h += '<div class="ins-item"><span class="ins-item-name" title="'+esc(p.name)+'">'+esc(p.name||'—')+'</span><span class="ins-item-val c-red">'+fmtD(p.endDate)+'</span></div>';
+      h += '<div class="ins-item"><span class="ins-item-name" title="'+esc(p.name)+'">'+esc(p.name||'—')+'</span><span class="ins-item-val c-red">'+(p.endDate?fmtD(p.endDate):'sem data')+'</span></div>';
     });
     h += '</div>';
   }
@@ -978,9 +988,17 @@ function renderWorkload() {
   });
 
   var sorted = Object.keys(map).sort(function(a,b){ return map[b].hRl - map[a].hRl; });
+  var semSquad = FIL.filter(function(p){ return !p.squadId; }).length;
   document.getElementById('badgeWL').textContent = sorted.length + ' squads';
 
-  if (!sorted.length) { document.getElementById('wlGrid').innerHTML = '<div class="empty">Sem dados</div>'; return; }
+  if (!sorted.length) { document.getElementById('wlGrid').innerHTML = '<div class="empty">Sem dados de squad. Preencha os squads no Ekyte.</div>'; return; }
+
+  // Aviso se há muitos projetos sem squad
+  var avisoHtml = '';
+  if (semSquad > 0) {
+    var pct = Math.round(semSquad / FIL.length * 100);
+    avisoHtml = '<div style="grid-column:1/-1;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--amber);margin-bottom:2px">&#9888; <strong>'+semSquad+' projetos ('+pct+'%)</strong> sem squad associado nao aparecem aqui. Preencha os squads no Ekyte para visualizacao completa.</div>';
+  }
 
   var h = '';
   sorted.forEach(function(name) {
@@ -1005,7 +1023,7 @@ function renderWorkload() {
     h += '<div class="pb-lbl" style="margin-top:3px">'+s.dT+' de '+s.tT+' concluidas</div>';
     h += '</div>';
   });
-  document.getElementById('wlGrid').innerHTML = h;
+  document.getElementById('wlGrid').innerHTML = avisoHtml + h;
 }
 
 function wlRow(key, val, cls) {
@@ -1017,10 +1035,12 @@ function getOrc(p) { return p.plannedTotalEstimatedHourlyRate || 0; }
 function getGst(p) { return p.plannedTotalAccomplishedHourlyRate || 0; }
 function getSit(p) {
   var s = p.situation;
+  // Corrige falsos atrasados da API: se todas as tarefas estao concluidas,
+  // o projeto nao pode ser atrasado — sobrescreve para concluido.
+  var todasFeitas = p.plannedTasksCount > 0 && p.accomplishedTasksCount >= p.plannedTasksCount;
+  if (todasFeitas) return 2;
   if (s === 0 || s === 1 || s === 2) return s;
-  // Fallback: concluido se todas as tarefas feitas; nunca marca atrasado por data de tarefa individual
-  if (p.plannedTasksCount > 0 && p.accomplishedTasksCount >= p.plannedTasksCount) return 2;
-  return 0;
+  return 0; // fallback seguro: em andamento
 }
 function fmtR(v) {
   if (!v) return '—';
