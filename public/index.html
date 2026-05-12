@@ -945,7 +945,8 @@ function renderTable() {
     h += '<td style="color:var(--txt3);font-size:11px">'+esc(p.squad||'—')+'</td>';
     h += '<td style="color:var(--txt3);white-space:nowrap">'+fmtD(p.startDate)+'</td>';
     h += '<td style="color:var(--txt3);white-space:nowrap">'+fmtD(p.endDate)+'</td>';
-    h += '<td><span class="st '+sc.c+'"><span class="st-dot"></span>'+sc.l+'</span></td>';
+    var tarefaAtrasada = temTarefaAtrasada(p);
+    h += '<td><span class="st '+sc.c+'"><span class="st-dot"></span>'+sc.l+'</span>'+(tarefaAtrasada?'<span style="margin-left:4px;font-size:10px;color:var(--amber);background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.25);border-radius:3px;padding:1px 5px;white-space:nowrap">&#9651; tarefa</span>':'')+'</td>';
     h += '<td class="num c-blue">'+fmtR(pO)+'</td>';
     h += '<td class="num '+(pG&&pO?(delta>0?'c-red':'c-green'):'c-dim')+'">'+fmtR(pG)+'</td>';
     h += '<td class="num" style="color:var(--txt3)">'+fmtH(hPl)+'</td>';
@@ -1033,29 +1034,26 @@ function wlRow(key, val, cls) {
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 function getOrc(p) { return p.plannedTotalEstimatedHourlyRate || 0; }
 function getGst(p) { return p.plannedTotalAccomplishedHourlyRate || 0; }
+// Status do PROJETO baseado apenas no prazo do projeto em si,
+// nunca em tarefas individuais. Use temTarefaAtrasada() para badge separado.
 function getSit(p) {
-  var todasFeitas = p.plannedTasksCount > 0 && p.accomplishedTasksCount >= p.plannedTasksCount;
   var hoje = new Date(); hoje.setHours(0,0,0,0);
   var fim  = p.endDate ? new Date(p.endDate) : null;
-  var s    = p.situation;
 
-  // Regra 1: todas as tarefas concluidas → concluido (corrige falsos atrasados da API)
-  if (todasFeitas) return 2;
+  // Concluido: todas as tarefas feitas OU API diz concluido
+  var todasFeitas = p.plannedTasksCount > 0 && p.accomplishedTasksCount >= p.plannedTasksCount;
+  if (todasFeitas || p.situation === 2) return 2;
 
-  // Regra 2: API ja diz concluido → respeita
-  if (s === 2) return 2;
+  // Atrasado: SOMENTE se o prazo do proprio projeto passou
+  if (fim && fim < hoje) return 1;
 
-  // Regra 3: API diz atrasado MAS prazo do PROJETO ainda nao passou
-  //   → e a tarefa individual que esta atrasada, nao o projeto inteiro
-  if (s === 1 && fim && fim >= hoje) return 0;
-
-  // Regra 4: API diz em andamento MAS prazo do projeto ja passou
-  //   → genuinamente atrasado, API nao atualizou o status
-  if (s === 0 && fim && fim < hoje) return 1;
-
-  // Regra 5: sem data de fim ou API explicita → confia no campo situation
-  if (s === 0 || s === 1) return s;
+  // Em andamento: prazo ok (mesmo que tarefa individual esteja atrasada)
   return 0;
+}
+
+// Retorna true se o Ekyte sinalizou tarefa atrasada mas o projeto ainda esta em andamento
+function temTarefaAtrasada(p) {
+  return p.situation === 1 && getSit(p) === 0;
 }
 function fmtR(v) {
   if (!v) return '—';
@@ -1102,6 +1100,9 @@ function openDrawer(projectId) {
   // Status + cliente
   h += '<div class="dr-section">';
   h += '<div class="dr-row"><span class="dr-key">Status</span><span class="dr-val" style="color:'+sc.c+'">&#9679; '+sc.l+'</span></div>';
+  if (temTarefaAtrasada(p)) {
+    h += '<div style="margin:4px 0 8px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:5px;padding:7px 10px;font-size:11px;color:var(--amber)">&#9651; Este projeto tem <strong>tarefa(s) com prazo vencido</strong> no Ekyte, mas o prazo do projeto em si ainda est&#225; vigente.</div>';
+  }
   h += '<div class="dr-row"><span class="dr-key">Cliente</span><span class="dr-val">'+esc(p.workspace||'—')+'</span></div>';
   h += '<div class="dr-row"><span class="dr-key">Squad</span><span class="dr-val">'+esc(p.squad||'—')+'</span></div>';
   h += '<div class="dr-row"><span class="dr-key">Inicio</span><span class="dr-val">'+fmtD(p.startDate)+'</span></div>';
