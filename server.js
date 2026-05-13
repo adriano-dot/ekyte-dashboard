@@ -114,17 +114,14 @@ app.get('/api/time-trackings/by-workspace', async (req, res) => {
   }
 });
 
-// ── WORKSPACES (extraído dos projetos) ───────────────────────────────────────
+// ── WORKSPACES (endpoint real com campo active) ──────────────────────────────
 app.get('/api/workspaces', async (req, res) => {
   try {
-    const data = await fetchAllPages(`${BASE_URL}/v1.0/projects`);
-    const map = new Map();
-    data.forEach(p => {
-      if (p.workspaceId && p.workspace) map.set(p.workspaceId, p.workspace);
-    });
-    const workspaces = [...map.entries()]
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const data = await fetchAllPages(`${BASE_URL}/v1.0/workspaces`);
+    // Retorna id, name e active para o front poder filtrar inativos
+    const workspaces = data
+      .map(w => ({ id: w.id, name: w.name, active: w.active }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     res.json({ data: workspaces });
   } catch (err) {
     res.status(500).json({ error: err.message });
