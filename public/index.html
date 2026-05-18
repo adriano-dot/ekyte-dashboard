@@ -268,10 +268,14 @@ table.main-tbl td.num{text-align:right;font-variant-numeric:tabular-nums}
       </select>
     </div>
     <div class="f-div"></div>
-    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--txt3);white-space:nowrap">
-      <input type="checkbox" id="fInativos" style="accent-color:var(--red);width:14px;height:14px;cursor:pointer"/>
-      Mostrar inativos
-    </label>
+    <div class="fg">
+      <label>Visibilidade</label>
+      <select class="fi" id="fViewMode" style="min-width:210px">
+        <option value="ativos">Somente ativos</option>
+        <option value="inativos_clientes_ativos">Inativos (clientes ativos)</option>
+        <option value="todos">Todos (incl. inativos)</option>
+      </select>
+    </div>
     <button class="btn btn-ghost" id="btnClear">Limpar</button>
   </div>
 </div>
@@ -425,18 +429,9 @@ function bindEvents() {
   document.getElementById('btnRefresh').addEventListener('click', loadData);
   document.getElementById('btnClear').addEventListener('click', clearFilters);
 
-  // toggle inativos — reaplica filtro sobre ALL_RAW sem recarregar da API
-  document.getElementById('fInativos').addEventListener('change', function() {
-    var mostrarInativos = this.checked;
-    ALL = mostrarInativos
-      ? ALL_RAW
-      : ALL_RAW.filter(function(p) {
-          if (p.planned === 0) return false;
-          if (INACTIVE_WS.has(p.workspaceId)) return false;
-          return true;
-        });
-    var qtdInativos = ALL_RAW.length - ALL.length;
-    setTxt('lblInativos', qtdInativos + ' inativos ocultos');
+  // modo de visibilidade — reaplica filtro sobre ALL_RAW sem recarregar da API
+  document.getElementById('fViewMode').addEventListener('change', function() {
+    applyViewMode();
     buildDropdowns();
     applyFilters();
   });
@@ -487,17 +482,7 @@ function loadData() {
         return p;
       });
 
-      var mostrarInativos = document.getElementById('fInativos').checked;
-      ALL = mostrarInativos
-        ? ALL_RAW
-        : ALL_RAW.filter(function(p) {
-            if (p.planned === 0) return false;               // projeto inativo
-            if (INACTIVE_WS.has(p.workspaceId)) return false; // workspace inativo
-            return true;
-          });
-
-      var qtdInativos = ALL_RAW.length - ALL.length;
-      setTxt('lblInativos', qtdInativos + ' inativos ocultos');
+      applyViewMode();
       buildDropdowns();
       applyFilters();
       setTxt('hTime', 'Atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}));
@@ -510,6 +495,27 @@ function loadData() {
       show('loader', false);
       document.getElementById('btnRefresh').disabled = false;
     });
+}
+
+// ─── VIEW MODE ────────────────────────────────────────────────────────────────
+function applyViewMode() {
+  var mode = document.getElementById('fViewMode').value;
+  if (mode === 'todos') {
+    ALL = ALL_RAW.slice();
+    setTxt('lblInativos', ALL_RAW.filter(function(p){ return p.planned===0; }).length + ' inativos incluidos');
+  } else if (mode === 'inativos_clientes_ativos') {
+    ALL = ALL_RAW.filter(function(p) {
+      return p.planned === 0 && !INACTIVE_WS.has(p.workspaceId);
+    });
+    setTxt('lblInativos', ALL.length + ' modulos inativos de clientes ativos');
+  } else {
+    // ativos (default)
+    ALL = ALL_RAW.filter(function(p) {
+      return p.planned !== 0 && !INACTIVE_WS.has(p.workspaceId);
+    });
+    var qtd = ALL_RAW.length - ALL.length;
+    setTxt('lblInativos', qtd + ' inativos ocultos');
+  }
 }
 
 // ─── DROPDOWNS ────────────────────────────────────────────────────────────────
@@ -578,10 +584,13 @@ function resetDates() {
 }
 
 function clearFilters() {
-  document.getElementById('fClient').value   = '';
-  document.getElementById('fSquad').value    = '';
-  document.getElementById('fStatus').value   = '';
-  document.getElementById('tblSearch').value = '';
+  document.getElementById('fClient').value    = '';
+  document.getElementById('fSquad').value     = '';
+  document.getElementById('fStatus').value    = '';
+  document.getElementById('fViewMode').value  = 'ativos';
+  document.getElementById('tblSearch').value  = '';
+  applyViewMode();
+  buildDropdowns();
   resetDates();
 }
 
@@ -590,6 +599,13 @@ function updateStatusBar(clientId, squadId, status, from, to) {
   setTxt('sbTotal', ALL.length);
 
   var chips = '';
+
+  var viewMode = document.getElementById('fViewMode').value;
+  if (viewMode === 'inativos_clientes_ativos') {
+    chips += chip('🚫 Inativos — clientes ativos', "document.getElementById('fViewMode').value='ativos';applyViewMode();buildDropdowns();applyFilters()");
+  } else if (viewMode === 'todos') {
+    chips += chip('👁 Todos (incl. inativos)', "document.getElementById('fViewMode').value='ativos';applyViewMode();buildDropdowns();applyFilters()");
+  }
 
   if (from || to) {
     var periodLbl = (from || '…') + ' → ' + (to || '…');
